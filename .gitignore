@@ -1,0 +1,21 @@
+#vs 文件夹
+
+# Visual Studio Code
+.vscode/
+# Visual Studio Code workspace storage
+.vs/
+out/
+
+progress/
+# del txt files
+*.log
+*.bak
+
+#88.txt文件
+88.txt
+
+
+pychache/
+
+# Python cache files
+__pycache__/
