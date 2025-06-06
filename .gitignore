@@ -1,0 +1,7 @@
+#vs 文件夹
+
+# Visual Studio Code
+.vscode/
+# Visual Studio Code workspace storage
+.vs/
+out/

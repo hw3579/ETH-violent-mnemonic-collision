@@ -1,0 +1,9 @@
+python shard_migrate.py --old-shard 0 --old-total 8192 --new-shard-exp 20 --new-shard-start 0 --new-shard-count 100 --seed 12345678
+python eth.py --shard 0 --total-shards 100000000000000000000 --threads 15 --resume --seed 12345678
+
+
+ python batch.py --shard 0 --total-shards 100000000000000000000 --resume --gen-threads 15 --query-threads 2 
+
+ python async_batch.py --shard 0 --total-shards 10000000000000000000 --gen-threads 15 --query-concurrency 15 --batch-size 100 --queue-size 20000 --resume
+
+python eth.py --shard 0 --total-shards 100000000000000000000 --threads 15 --resume
