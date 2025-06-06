@@ -229,6 +229,13 @@ async def async_batch_check_balances(session, addresses, batch_id):
                 "id": i + 1
             })
         
+        # 打印发送查询状态
+        with print_lock:
+            print(f"{cyan}🔍 批次 {batch_id} 正在查询 {len(batch_request)} 个地址 (节点: {rpc_url.split('/')[-1]}){reset}")
+        
+        # 记录开始时间
+        start_time = time.time()
+        
         # 发送批量请求
         async with session.post(
             rpc_url,
@@ -240,6 +247,13 @@ async def async_batch_check_balances(session, addresses, batch_id):
             if response.status == 200:
                 results = {}
                 response_data = await response.json()
+                
+                # 计算响应时间
+                response_time = time.time() - start_time
+                
+                # 打印响应状态
+                with print_lock:
+                    print(f"{green}✓ 批次 {batch_id} 查询完成: {len(batch_request)} 个地址 ({response_time:.2f}秒){reset}")
                 
                 # 如果响应不是列表，可能是节点不支持批量但返回了单个结果
                 if not isinstance(response_data, list):
@@ -267,12 +281,14 @@ async def async_batch_check_balances(session, addresses, batch_id):
             else:
                 # 标记节点失败
                 rpc_pool.mark_node_fail(rpc_url)
-                print(f"{red}批次 {batch_id} RPC节点 {rpc_url} 返回状态码: {response.status}{reset}")
+                with print_lock:
+                    print(f"{red}❌ 批次 {batch_id} RPC节点返回错误: 状态码 {response.status}{reset}")
                 return None, addresses
     except Exception as e:
         # 标记节点失败
         rpc_pool.mark_node_fail(rpc_url)
-        print(f"{red}批次 {batch_id} RPC节点 {rpc_url} 批量查询错误: {e}{reset}")
+        with print_lock:
+            print(f"{red}❌ 批次 {batch_id} 查询失败: {str(e)[:100]}...{reset}")
         return None, addresses
 
 def generate_eth_address_from_mnemonic(mnemonic):
@@ -371,33 +387,32 @@ def process_balance_results(results, addresses):
     """处理查询返回的余额结果"""
     global ff
     
+    # 计算有余额和无余额的钱包数量
+    wallets_with_balance = 0
+    wallets_checked = len(results)
+    
     for idx, balance in results.items():
         address_info = addresses[idx]
         eth_balance = balance / 10**18
         
-        with print_lock:
-            addr_space = " " * (44 - len(address_info["address"]))
-            print(f"线程[{address_info.get('thread_id', 'async')}] ({address_info['count']}) 分片[{shard_id+1}/{total_shards}] ETH: {cyan}{address_info['address']}{reset}{addr_space}[Balance: {cyan}{eth_balance}{reset}]")
-            print(f"Mnemonic: {yellow}{address_info['mnemonic']}{reset}")
-            print(f"Private Key: {address_info['private_key'].hex()}")
-            print(f"{'-' * 66}")
-        
         # 如果发现有余额，保存结果
         if eth_balance > 0:
+            wallets_with_balance += 1
             with counter_lock:
                 ff += 1
             
+            # 保存到文件
             with open(result_file, "a", encoding="utf-8") as dr:
                 dr.write(f"ETH: {address_info['address']} | Balance: {eth_balance}\n"
-                         f"Mnemonic: {address_info['mnemonic']}\n"
-                         f"Private Key: {address_info['private_key'].hex()}\n\n")
+                        f"Mnemonic: {address_info['mnemonic']}\n"
+                        f"Private Key: {address_info['private_key'].hex()}\n\n")
             
             # 同时保存到汇总文件
             with open("88.txt", "a", encoding="utf-8") as dr:
                 dr.write(f"ETH: {address_info['address']} | Balance: {eth_balance}\n"
-                         f"Mnemonic: {address_info['mnemonic']}\n"
-                         f"Private Key: {address_info['private_key'].hex()}\n"
-                         f"Found by Shard: {shard_id}, Thread: {address_info.get('thread_id', 'async')}\n\n")
+                        f"Mnemonic: {address_info['mnemonic']}\n"
+                        f"Private Key: {address_info['private_key'].hex()}\n"
+                        f"Found by Shard: {shard_id}, Count: {address_info['count']}\n\n")
             
             with print_lock:
                 print(f"\n{green}🚨 找到有余额的钱包! 详细信息已保存到{result_file}和88.txt文件 🚨{reset}\n")
@@ -405,7 +420,22 @@ def process_balance_results(results, addresses):
             # 立即保存进度
             with open(progress_file, "w") as f:
                 f.write(f"{z},{ff}")
-
+        
+        # 打印钱包信息 (无论是否有余额)
+        with print_lock:
+            addr_space = " " * (44 - len(address_info["address"]))
+            print(f"查询 ({address_info['count']}) 分片[{shard_id+1}/{total_shards}] ETH: {cyan}{address_info['address']}{reset}{addr_space}[Balance: {cyan}{eth_balance}{reset}]")
+            print(f"Mnemonic: {yellow}{address_info['mnemonic']}{reset}")
+            print(f"Private Key: {address_info['private_key'].hex()}")
+            print(f"{'-' * 66}")
+    
+    # 打印批次统计信息
+    if wallets_checked > 0:
+        with print_lock:
+            if wallets_with_balance > 0:
+                print(f"{green}✨ 批次统计: 检查了 {wallets_checked} 个钱包，找到 {wallets_with_balance} 个有余额的钱包!{reset}")
+            else:
+                print(f"{yellow}📊 批次统计: 检查了 {wallets_checked} 个钱包，没有找到有余额的钱包{reset}")
 
 # 异步查询主循环
 async def query_main_loop():
@@ -415,6 +445,7 @@ async def query_main_loop():
         # 创建任务队列和未完成任务集合
         tasks = set()
         batch_id = 0
+        last_status_time = 0
         
         while not stop_event.is_set():
             # 检查是否有完成的任务
@@ -436,6 +467,13 @@ async def query_main_loop():
                             pass  # 队列满了，丢弃
                 except Exception as e:
                     print(f"{red}处理查询结果时出错: {e}{reset}")
+            
+            # 定期报告状态
+            current_time = time.time()
+            if current_time - last_status_time >= 10 and not stop_event.is_set():  # 每10秒报告一次
+                with print_lock:
+                    print(f"{cyan}💫 状态: 队列 {address_queue.qsize()}/{args.queue_size}, 活跃查询任务 {len(tasks)}, 总处理: {z}, 找到: {ff}{reset}")
+                last_status_time = current_time
             
             # 检查当前并发任务数量，如果少于设定值则添加新任务
             while len(tasks) < args.query_concurrency and not stop_event.is_set():
@@ -468,12 +506,8 @@ async def query_main_loop():
             
             # 等待一小段时间后继续循环
             await asyncio.sleep(0.1)
-            
-            # 每30秒报告状态
-            if time.time() % 30 < 0.1 and not stop_event.is_set():
-                with print_lock:
-                    print(f"{cyan}状态: 队列 {address_queue.qsize()}/{args.queue_size}, 活跃查询任务 {len(tasks)}{reset}")
 
+            
 # 运行异步查询循环的线程函数
 def run_query_loop():
     """在单独的线程中运行异步查询循环"""
