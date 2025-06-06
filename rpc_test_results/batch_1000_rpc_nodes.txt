@@ -1,3 +1,0 @@
-https://ethereum.blockpi.network/v1/rpc/272fe1b5920e3dcad5b8f3765d3b6d3cc5c123d8 (最大批量: 1000, 性能提升: 55.97倍)
-https://eth.blockrazor.xyz (最大批量: 1000, 性能提升: 501.38倍)
-https://1rpc.io/eth (最大批量: 2000, 性能提升: 238.67倍)
