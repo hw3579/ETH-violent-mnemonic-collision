@@ -5,3 +5,6 @@
 # Visual Studio Code workspace storage
 .vs/
 out/
+
+progress/
+88.txt
